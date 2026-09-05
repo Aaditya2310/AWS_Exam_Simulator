@@ -442,14 +442,3 @@ All exam questions in this project are original. They are intended to reflect pu
 
 AWS and related certification names are trademarks of Amazon Web Services, Inc.
 
----
-
-## 📄 License
-
-Add your project's license here, for example:
-
-```text
-MIT License
-```
-
-if the repository is intended to be released under the MIT License.
