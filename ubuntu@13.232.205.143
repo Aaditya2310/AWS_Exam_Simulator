@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# Run this once on a fresh Ubuntu 22.04/24.04 EC2 t2.micro/t3.micro instance
+# (free-tier eligible). Sets up: swap, Docker, k3s (lightweight Kubernetes),
+# Jenkins, and kubectl — all on the one box, per the "learning, accept the
+# fragility" tradeoff.
+#
+# Usage: sudo bash ec2-setup.sh
+set -euo pipefail
+
+if [[ $EUID -ne 0 ]]; then
+  echo "Run this as root (sudo bash ec2-setup.sh)." >&2
+  exit 1
+fi
+
+echo "== 1/6: System update =="
+apt-get update -y
+apt-get upgrade -y
+
+echo "== 2/6: Swap file (2GB) =="
+# A t2/t3.micro has 1GB RAM. Running k3s + Jenkins + app pods on that
+# without swap risks the OOM killer taking down whichever process is
+# biggest at the worst moment. This doesn't fix the RAM shortage, it just
+# turns hard crashes into (very) slow disk-backed memory.
+if [[ ! -f /swapfile ]]; then
+  fallocate -l 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  echo "Swap file created and enabled."
+else
+  echo "Swap file already exists, skipping."
+fi
+
+echo "== 3/6: Docker =="
+if ! command -v docker &>/dev/null; then
+  apt-get install -y ca-certificates curl gnupg
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  chmod a+r /etc/apt/keyrings/docker.asc
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  echo \
+    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${VERSION_CODENAME} stable" \
+    > /etc/apt/sources.list.d/docker.list
+  apt-get update -y
+  apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin
+  systemctl enable --now docker
+else
+  echo "Docker already installed, skipping."
+fi
+
+echo "== 4/6: k3s (lightweight Kubernetes) =="
+if ! command -v k3s &>/dev/null; then
+  curl -sfL https://get.k3s.io | sh -
+  # Wait for the node to report Ready before moving on.
+  echo "Waiting for k3s node to become Ready..."
+  for _ in $(seq 1 30); do
+    if k3s kubectl get nodes 2>/dev/null | grep -q ' Ready'; then
+      break
+    fi
+    sleep 5
+  done
+  k3s kubectl get nodes
+else
+  echo "k3s already installed, skipping."
+fi
+
+echo "== 5/6: Jenkins =="
+if ! command -v jenkins &>/dev/null && [[ ! -d /var/lib/jenkins ]]; then
+  apt-get install -y fontconfig openjdk-17-jre
+  curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key \
+    -o /usr/share/keyrings/jenkins-keyring.asc
+  echo "deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/" \
+    > /etc/apt/sources.list.d/jenkins.list
+  apt-get update -y
+  apt-get install -y jenkins
+
+  # Constrain Jenkins' JVM heap so it doesn't crowd out k3s and the app
+  # pods on a 1GB-RAM box. Adjust JENKINS_JAVA_OPTIONS if builds OOM.
+  mkdir -p /etc/systemd/system/jenkins.service.d
+  cat > /etc/systemd/system/jenkins.service.d/override.conf << 'EOF'
+[Service]
+Environment="JAVA_OPTS=-Xmx384m"
+EOF
+  systemctl daemon-reload
+  systemctl enable --now jenkins
+else
+  echo "Jenkins already installed, skipping."
+fi
+
+echo "== 6/6: kubectl + wiring Jenkins to the cluster and Docker =="
+if ! command -v kubectl &>/dev/null; then
+  curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+  install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+  rm -f kubectl
+fi
+
+usermod -aG docker jenkins || true
+
+mkdir -p /var/lib/jenkins/.kube
+cp /etc/rancher/k3s/k3s.yaml /var/lib/jenkins/.kube/config
+chown -R jenkins:jenkins /var/lib/jenkins/.kube
+chmod 600 /var/lib/jenkins/.kube/config
+
+systemctl restart jenkins
+
+echo ""
+echo "=================================================================="
+echo "Done. Next steps:"
+echo "1. Jenkins initial admin password:"
+echo "   cat /var/lib/jenkins/secrets/initialAdminPassword"
+echo "2. Open Jenkins at http://<this-instance-public-ip>:8080"
+echo "   (restrict inbound 8080 in your Security Group to your own IP only)"
+echo "3. In Jenkins: Manage Jenkins > Credentials, add a 'dockerhub-creds'"
+echo "   username/password credential for Docker Hub."
+echo "4. Create the k8s app-secrets Secret (see k8s/secret.example.yaml)"
+echo "   before the pipeline's Deploy stage runs, or the server pod will"
+echo "   crash-loop with 'Missing JWT_SECRET'."
+echo "5. Create a Jenkins Pipeline job pointing at this repo's Jenkinsfile."
+echo "=================================================================="
