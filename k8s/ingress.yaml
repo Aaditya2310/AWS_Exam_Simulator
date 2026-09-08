@@ -1,0 +1,25 @@
+# k3s ships with Traefik as its default Ingress controller — nothing extra
+# to install. This Ingress only needs to point at the client Service,
+# because nginx inside that pod already reverse-proxies /api/* to the
+# server Service internally (see client/nginx.conf). That also means the
+# browser only ever talks to one origin — no CORS to configure.
+#
+# No host rule is set below, since a free-tier setup usually has no domain
+# yet, just the EC2 public IP. Add a host once you have a real domain.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  namespace: aws-exam
+spec:
+  ingressClassName: traefik
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: client
+                port:
+                  number: 80

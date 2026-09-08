@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server
+  namespace: aws-exam
+spec:
+  # Deliberately 1: SQLite is a single-writer file database, and the PVC
+  # below is ReadWriteOnce anyway. Don't scale this without switching to
+  # a real database first.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: server
+  template:
+    metadata:
+      labels:
+        app: server
+    spec:
+      securityContext:
+        fsGroup: 1001 # must match the 'app' group's GID pinned in server/Dockerfile
+      containers:
+        - name: server
+          # Jenkins replaces this tag on every deploy — see Jenkinsfile.
+          image: REPLACE_DOCKERHUB_USERNAME/aws-exam-server:latest
+          ports:
+            - containerPort: 4000
+          env:
+            - name: PORT
+              value: "4000"
+            - name: DB_PATH
+              value: /app/data/app.db
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: JWT_SECRET
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 4000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: server-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: server
+  namespace: aws-exam
+spec:
+  selector:
+    app: server
+  ports:
+    - port: 4000
+      targetPort: 4000

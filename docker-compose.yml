@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  server:
+    build: ./server
+    environment:
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in a .env file before running compose}
+      DB_PATH: /app/data/app.db
+      CORS_ORIGIN: http://localhost:8080
+    volumes:
+      - server-data:/app/data
+    restart: unless-stopped
+
+  client:
+    build: ./client
+    ports:
+      - "8080:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+volumes:
+  server-data:

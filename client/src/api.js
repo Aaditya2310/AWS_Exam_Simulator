@@ -1,4 +1,8 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
+// Defaults to a relative path so that in production (behind the k8s Ingress,
+// where client and API share one origin/domain) no build-time env var is
+// needed at all. For local dev with the client and server on different
+// ports, set VITE_API_URL=http://localhost:4000/api in client/.env.
+const API_URL = import.meta.env.VITE_API_URL || "/api";
 
 function getToken() {
   return localStorage.getItem("token");
