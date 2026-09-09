@@ -16,7 +16,7 @@ pipeline {
     agent any
 
     environment {
-        DOCKERHUB_USERNAME = 'REPLACE_DOCKERHUB_USERNAME'
+        DOCKERHUB_USERNAME = 'Adisru'
     }
 
     options {
