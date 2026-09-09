@@ -17,6 +17,7 @@ pipeline {
 
     environment {
         DOCKERHUB_USERNAME = 'adisru'
+        KUBECONFIG = '/var/lib/jenkins/.kube/config'
     }
 
     options {
