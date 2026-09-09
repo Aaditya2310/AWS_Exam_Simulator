@@ -21,7 +21,7 @@ spec:
       containers:
         - name: server
           # Jenkins replaces this tag on every deploy — see Jenkinsfile.
-          image: REPLACE_DOCKERHUB_USERNAME/aws-exam-server:latest
+          image: adisru/aws-exam-server:latest
           ports:
             - containerPort: 4000
           env:
