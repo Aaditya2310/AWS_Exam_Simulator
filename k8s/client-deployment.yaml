@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: client
-          image: REPLACE_DOCKERHUB_USERNAME/aws-exam-client:latest
+          image: adisru/aws-exam-client:latest
           ports:
             - containerPort: 80
           resources:
