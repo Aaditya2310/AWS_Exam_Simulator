@@ -1,20 +1,20 @@
-name: Build and push images
+name: CI/CD Pipeline
 
-# Builds AND deploys, entirely on GitHub's infrastructure. No Jenkins,
-# no build activity on the EC2 box at all — this workflow builds both
-# images, pushes them to Docker Hub, then SSHs into the EC2 instance to
-# run kubectl directly against the local k3s cluster.
+# Five separate jobs, each depending on the previous one finishing
+# successfully: build -> test -> push -> deploy -> health-check.
+# Docker images can't be shared between jobs directly (each job gets a
+# fresh runner), so `build` saves both images as file artifacts, which
+# `test` and `push` download and reload.
 "on":
   push:
     branches: [main]
-  workflow_dispatch: {} # lets you trigger a rebuild manually from the Actions tab
-
-env:
-  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  workflow_dispatch: {}
 
 jobs:
-  build-and-push:
+  build:
     runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.vars.outputs.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,35 +26,108 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Build server image (local only, not pushed yet)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./server
+          push: false
+          load: true
+          tags: aws-exam-server:${{ steps.vars.outputs.sha }}
+
+      - name: Build client image (local only, not pushed yet)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./client
+          push: false
+          load: true
+          tags: aws-exam-client:${{ steps.vars.outputs.sha }}
+
+      - name: Save both images to tarballs
+        run: |
+          docker save aws-exam-server:${{ steps.vars.outputs.sha }} -o server-image.tar
+          docker save aws-exam-client:${{ steps.vars.outputs.sha }} -o client-image.tar
+
+      - name: Upload image artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-images
+          path: |
+            server-image.tar
+            client-image.tar
+          retention-days: 1
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-images
+
+      - name: Load images into Docker
+        run: |
+          docker load -i server-image.tar
+          docker load -i client-image.tar
+
+      - name: Smoke test the server image
+        run: |
+          docker run -d --name test-server -p 4000:4000 \
+            -e JWT_SECRET=ci-test-secret-not-for-production-use \
+            -e DB_PATH=/app/data/test.db \
+            aws-exam-server:${{ needs.build.outputs.sha }}
+
+          echo "Waiting for the server to become healthy..."
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:4000/api/health; then
+              echo ""
+              echo "Health check passed on attempt $i"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Server never became healthy — dumping its logs:"
+          docker logs test-server
+          exit 1
+
+      - name: Stop and remove the test container
+        if: always()
+        run: docker rm -f test-server || true
+
+  push:
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-images
+
+      - name: Load images into Docker
+        run: |
+          docker load -i server-image.tar
+          docker load -i client-image.tar
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push server image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./server
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-server:${{ steps.vars.outputs.sha }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-server:latest
-
-      - name: Build and push client image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./client
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-client:${{ steps.vars.outputs.sha }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-client:latest
-
-    outputs:
-      sha: ${{ steps.vars.outputs.sha }}
+      - name: Tag and push both images
+        run: |
+          docker tag aws-exam-server:${{ needs.build.outputs.sha }} ${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-server:${{ needs.build.outputs.sha }}
+          docker tag aws-exam-server:${{ needs.build.outputs.sha }} ${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-server:latest
+          docker tag aws-exam-client:${{ needs.build.outputs.sha }} ${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-client:${{ needs.build.outputs.sha }}
+          docker tag aws-exam-client:${{ needs.build.outputs.sha }} ${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-client:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-server:${{ needs.build.outputs.sha }}
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-server:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-client:${{ needs.build.outputs.sha }}
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-client:latest
 
   deploy:
-    needs: build-and-push
+    needs: [build, push]
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to k3s over SSH
@@ -73,7 +146,25 @@ jobs:
             sudo k3s kubectl apply -f k8s/server-deployment.yaml
             sudo k3s kubectl apply -f k8s/client-deployment.yaml
             sudo k3s kubectl apply -f k8s/ingress.yaml
-            sudo k3s kubectl -n aws-exam set image deployment/server server=${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-server:${{ needs.build-and-push.outputs.sha }}
-            sudo k3s kubectl -n aws-exam set image deployment/client client=${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-client:${{ needs.build-and-push.outputs.sha }}
+            sudo k3s kubectl -n aws-exam set image deployment/server server=${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-server:${{ needs.build.outputs.sha }}
+            sudo k3s kubectl -n aws-exam set image deployment/client client=${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-client:${{ needs.build.outputs.sha }}
             sudo k3s kubectl -n aws-exam rollout status deployment/server --timeout=120s
             sudo k3s kubectl -n aws-exam rollout status deployment/client --timeout=120s
+
+  health-check:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm the live app responds over the public internet
+        run: |
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.EC2_HOST }}/api/health)
+            if [ "$code" = "200" ]; then
+              echo "Health check passed (HTTP $code) on attempt $i"
+              exit 0
+            fi
+            echo "Attempt $i: got HTTP $code, retrying in 5s..."
+            sleep 5
+          done
+          echo "Health check failed after 10 attempts"
+          exit 1
