@@ -1,8 +1,9 @@
 name: Build and push images
 
-# Builds happen here (GitHub's infrastructure, free minutes), not on the
-# EC2 box. Jenkins, on that box, only ever pulls the images this workflow
-# pushes and deploys them — see Jenkinsfile.
+# Builds AND deploys, entirely on GitHub's infrastructure. No Jenkins,
+# no build activity on the EC2 box at all — this workflow builds both
+# images, pushes them to Docker Hub, then SSHs into the EC2 instance to
+# run kubectl directly against the local k3s cluster.
 "on":
   push:
     branches: [main]
@@ -48,3 +49,31 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-client:${{ steps.vars.outputs.sha }}
             ${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-client:latest
+
+    outputs:
+      sha: ${{ steps.vars.outputs.sha }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to k3s over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            cd ~/AWS_Exam_Simulator
+            git fetch origin main
+            git reset --hard origin/main
+            sudo k3s kubectl apply -f k8s/namespace.yaml
+            sudo k3s kubectl apply -f k8s/server-pvc.yaml
+            sudo k3s kubectl apply -f k8s/server-deployment.yaml
+            sudo k3s kubectl apply -f k8s/client-deployment.yaml
+            sudo k3s kubectl apply -f k8s/ingress.yaml
+            sudo k3s kubectl -n aws-exam set image deployment/server server=${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-server:${{ needs.build-and-push.outputs.sha }}
+            sudo k3s kubectl -n aws-exam set image deployment/client client=${{ secrets.DOCKERHUB_USERNAME }}/aws-exam-client:${{ needs.build-and-push.outputs.sha }}
+            sudo k3s kubectl -n aws-exam rollout status deployment/server --timeout=120s
+            sudo k3s kubectl -n aws-exam rollout status deployment/client --timeout=120s
