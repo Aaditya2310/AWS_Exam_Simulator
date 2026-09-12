@@ -27,16 +27,18 @@ spec:
           env:
             - name: PORT
               value: "4000"
-            - name: DB_PATH
-              value: /app/data/app.db
+            - name: MONGODB_DB
+              value: aws_exam_simulator
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: MONGODB_URI
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: app-secrets
                   key: JWT_SECRET
-          volumeMounts:
-            - name: data
-              mountPath: /app/data
           resources:
             requests:
               cpu: 100m
@@ -56,10 +58,6 @@ spec:
               port: 4000
             initialDelaySeconds: 10
             periodSeconds: 15
-      volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: server-data
 ---
 apiVersion: v1
 kind: Service

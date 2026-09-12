@@ -52,8 +52,8 @@ or expose a port to the internet:
 
 - AMI: Ubuntu Server 22.04 or 24.04 LTS
 - Instance type: `t2.micro` or `t3.micro`
-- Storage: default 8GB. This is tight (see caveats) but workable now that
-  Docker isn't installed on the box.
+- Storage: default 8GB is workable because MongoDB Atlas stores application data
+  outside the EC2 instance and Docker builds happen in GitHub Actions.
 - Security Group inbound rules:
   - 22 (SSH) - restrict to your IP
   - 80, 443 (app traffic via Ingress) - open to the world
@@ -164,3 +164,20 @@ Open `http://<instance-ip>` in a browser.
   tier eligible" badge in the launch wizard, which appears on multiple
   instance sizes under the newer model and doesn't by itself mean
   "unlimited free usage."
+
+
+## MongoDB Atlas + domain setup
+
+This version uses MongoDB Atlas instead of SQLite, so the EC2 node does not need a database PVC.
+
+Before deploying:
+1. Create a MongoDB Atlas cluster and database user.
+2. Allow the EC2 Elastic IP in Atlas Network Access.
+3. Add GitHub Actions secrets `MONGODB_URI` and `JWT_SECRET`.
+4. Point a DNS A record such as `aws-exam.yourdomain.com` to the EC2 Elastic IP.
+5. Replace `REPLACE_WITH_YOUR_DOMAIN` in `k8s/ingress.yaml`.
+6. Make sure ports 80 and 443 are open in the EC2 security group.
+
+The GitHub Actions deploy job creates/updates the Kubernetes `app-secrets` secret from the GitHub secrets before deploying the API.
+
+The public URL will then be the DNS name, for example `https://aws-exam.yourdomain.com`, rather than the raw EC2 IP.

@@ -1,48 +1,26 @@
-import Database from "better-sqlite3";
-import fs from "node:fs";
-import path from "node:path";
+import { MongoClient } from "mongodb";
 
-const dbPath = process.env.DB_PATH || "./data/app.db";
-fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+const uri = process.env.MONGODB_URI;
+const dbName = process.env.MONGODB_DB || "aws_exam_simulator";
 
-export const db = new Database(dbPath);
-db.pragma("journal_mode = WAL");
+if (!uri) {
+  throw new Error("Missing MONGODB_URI in environment.");
+}
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
+const client = new MongoClient(uri);
+await client.connect();
 
-  CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    exam_id TEXT NOT NULL,
-    question_ids TEXT NOT NULL,
-    time_limit_sec INTEGER NOT NULL,
-    started_at TEXT NOT NULL,
-    used INTEGER NOT NULL DEFAULT 0,
-    FOREIGN KEY (user_id) REFERENCES users(id)
-  );
+export const db = client.db(dbName);
 
-  CREATE TABLE IF NOT EXISTS attempts (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    exam_id TEXT NOT NULL,
-    exam_code TEXT NOT NULL,
-    exam_name TEXT NOT NULL,
-    score INTEGER NOT NULL,
-    passed INTEGER NOT NULL,
-    correct_count INTEGER NOT NULL,
-    total INTEGER NOT NULL,
-    domain_stats TEXT NOT NULL,
-    time_taken_sec INTEGER NOT NULL,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY (user_id) REFERENCES users(id)
-  );
+export const users = db.collection("users");
+export const sessions = db.collection("sessions");
+export const attempts = db.collection("attempts");
 
-  CREATE INDEX IF NOT EXISTS idx_attempts_user ON attempts(user_id);
-  CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
-`);
+await Promise.all([
+  users.createIndex({ email: 1 }, { unique: true }),
+  sessions.createIndex({ user_id: 1, id: 1 }, { unique: true }),
+  attempts.createIndex({ user_id: 1, created_at: -1 }),
+  attempts.createIndex({ created_at: -1 }),
+]);
+
+console.log(`Connected to MongoDB database: ${dbName}`);

@@ -247,3 +247,26 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .h-col2 { font-family: ui-monospace, monospace; font-size: 12px; color: var(--text-dim); }
 .h-col5 { font-size: 11.5px; color: var(--text-dim); }
 .h-dim { color: var(--text-dim); font-size: 11.5px; }
+
+
+/* Brand + application icons */
+.brand-button { border: 0; cursor: pointer; color: inherit; background: transparent; padding: 0; }
+.brand-mark { display: inline-flex; align-items: center; justify-content: center; }
+.top-nav .nav-btn { display: inline-flex; align-items: center; gap: 6px; }
+.auth-logo {
+  width: 58px; height: 58px; margin: 0 auto 12px; border-radius: 16px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent); background: rgba(255,153,0,.1);
+  border: 1px solid rgba(255,153,0,.28);
+}
+.auth-card { max-width: 430px; }
+.auth-intro { margin: -8px 0 18px; }
+.field-wrap { position: relative; display: flex; align-items: center; }
+.field-wrap > svg, .field-icon {
+  position: absolute; left: 12px; z-index: 1; color: var(--text-dim);
+}
+.input-with-icon { padding-left: 38px; }
+.security-note { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.exam-name { display: flex; align-items: center; gap: 8px; }
+.domain-label { display: flex; align-items: center; gap: 6px; }
+.user-chip > svg { color: var(--accent); }

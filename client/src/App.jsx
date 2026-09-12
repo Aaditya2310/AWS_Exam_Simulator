@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "./api.js";
+import { BookOpen, History, LogOut, UserCircle, Cloud, ShieldCheck, Database, Gauge, Terminal, CheckCircle2 } from "lucide-react";
 
 function fmtTime(sec) {
   const m = Math.floor(sec / 60);
@@ -35,7 +36,7 @@ export default function App() {
       }
       try {
         const me = await api.me();
-        setUsername(me.username);
+        setUsername(me.name);
         const list = await api.getExams();
         setExams(list);
         setScreen("home");
@@ -58,8 +59,8 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, timeLeft]);
 
-  const handleAuthed = async (username) => {
-    setUsername(username);
+  const handleAuthed = async (user) => {
+    setUsername(user.name);
     setGlobalError(null);
     try {
       const list = await api.getExams();
@@ -206,16 +207,23 @@ export default function App() {
 function TopBar({ username, screen, onHome, onHistory, onLogout }) {
   return (
     <div className="top-bar">
-      <div className="brand">
-        <span className="brand-mark">AWS</span>
-        <span className="brand-text">Exam Sim</span>
-      </div>
+      <button className="brand brand-button" onClick={onHome} aria-label="Go to home">
+        <span className="brand-mark"><Cloud size={16} /></span>
+        <span className="brand-text">AWS Exam Simulator</span>
+      </button>
       <div className="top-nav">
-        <button className={`nav-btn ${screen === "home" ? "active" : ""}`} onClick={onHome}>Practice</button>
-        <button className={`nav-btn ${screen === "history" ? "active" : ""}`} onClick={onHistory}>History</button>
+        <button className={`nav-btn ${screen === "home" ? "active" : ""}`} onClick={onHome}>
+          <BookOpen size={15} /> Practice
+        </button>
+        <button className={`nav-btn ${screen === "history" ? "active" : ""}`} onClick={onHistory}>
+          <History size={15} /> History
+        </button>
         <div className="user-chip">
-          {username}
-          <button className="switch-btn" onClick={onLogout} title="Log out">⏻</button>
+          <UserCircle size={16} />
+          <span>{username}</span>
+          <button className="switch-btn" onClick={onLogout} title="Log out" aria-label="Log out">
+            <LogOut size={15} />
+          </button>
         </div>
       </div>
     </div>
@@ -225,26 +233,27 @@ function TopBar({ username, screen, onHome, onHistory, onLogout }) {
 /* ---------------- AUTH ---------------- */
 
 function AuthScreen({ onAuthed }) {
-  const [mode, setMode] = useState("login"); // login | register
-  const [username, setUsername] = useState("");
+  const [mode, setMode] = useState("login");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const submit = async () => {
     setError(null);
-    if (!username.trim() || !password) {
-      setError("Enter a username and password.");
-      return;
-    }
-    if (mode === "register" && password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return;
-    }
+    if (mode === "register" && !name.trim()) return setError("Enter your full name.");
+    if (!email.trim() || !password) return setError("Enter your email and password.");
+    if (mode === "register" && password.length < 8) return setError("Password must be at least 8 characters.");
+    if (mode === "register" && password !== confirmPassword) return setError("Passwords do not match.");
+
     setLoading(true);
     try {
-      const data = mode === "register" ? await api.register(username.trim(), password) : await api.login(username.trim(), password);
-      onAuthed(data.username);
+      const data = mode === "register"
+        ? await api.register(name.trim(), email.trim(), password)
+        : await api.login(email.trim(), password);
+      onAuthed(data.user);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -254,35 +263,43 @@ function AuthScreen({ onAuthed }) {
 
   return (
     <div className="name-wrap">
-      <div className="name-card">
+      <div className="name-card auth-card">
+        <div className="auth-logo"><Cloud size={28} /></div>
         <div className="name-mark">AWS</div>
-        <h1 className="name-title">Exam Simulator</h1>
+        <h1 className="name-title">AWS Exam Simulator</h1>
+        <p className="name-sub auth-intro">Practice AWS certification exams, track your attempts and improve your score.</p>
+
         <div className="auth-toggle">
           <button className={`auth-tab ${mode === "login" ? "active" : ""}`} onClick={() => { setMode("login"); setError(null); }}>Log in</button>
           <button className={`auth-tab ${mode === "register" ? "active" : ""}`} onClick={() => { setMode("register"); setError(null); }}>Create account</button>
         </div>
-        <input
-          className="input"
-          placeholder="Username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          autoFocus
-        />
-        <input
-          className="input"
-          type="password"
-          placeholder={mode === "register" ? "Password (min 8 characters)" : "Password"}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-        />
+
+        {mode === "register" && (
+          <div className="field-wrap">
+            <UserCircle size={17} />
+            <input className="input input-with-icon" placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          </div>
+        )}
+        <div className="field-wrap">
+          <span className="field-icon">@</span>
+          <input className="input input-with-icon" type="email" placeholder="Email address" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus={mode === "login"} />
+        </div>
+        <div className="field-wrap">
+          <ShieldCheck size={17} />
+          <input className="input input-with-icon" type="password" placeholder={mode === "register" ? "Password (min 8 characters)" : "Password"} value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+        </div>
+        {mode === "register" && (
+          <div className="field-wrap">
+            <CheckCircle2 size={17} />
+            <input className="input input-with-icon" type="password" placeholder="Confirm password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+          </div>
+        )}
+
         {error && <div className="auth-error">{error}</div>}
         <button className="primary-btn" onClick={submit} disabled={loading}>
           {loading ? "Please wait…" : mode === "register" ? "Create account" : "Log in"}
         </button>
-        <p className="name-sub" style={{ marginTop: 14, marginBottom: 0 }}>
-          Passwords are hashed server-side (bcrypt) and never stored in plain text. History is private to your account by default; the leaderboard tab shows results across all users.
-        </p>
+        <p className="name-sub security-note"><ShieldCheck size={14} /> Passwords are securely hashed with bcrypt. Account data and exam history are stored in MongoDB Atlas.</p>
       </div>
     </div>
   );
@@ -311,11 +328,11 @@ function HomeScreen({ exams, onStart }) {
             <div className="exam-card-top" />
             <div className="exam-card-body">
               <div className="exam-code">{exam.code}</div>
-              <div className="exam-name">{exam.name}</div>
+              <div className="exam-name"><Cloud size={20} /> {exam.name}</div>
               <div className="domain-bars">
                 {Object.entries(exam.domains).map(([key, d]) => (
                   <div key={key} className="domain-row">
-                    <div className="domain-label">{d.label}</div>
+                    <div className="domain-label">{key === "concepts" ? <Cloud size={14} /> : key === "security" ? <ShieldCheck size={14} /> : key === "technology" ? <Terminal size={14} /> : <Gauge size={14} />}<span>{d.label}</span></div>
                     <div className="domain-bar-track">
                       <div className="domain-bar-fill" style={{ width: `${d.weight}%` }} />
                     </div>

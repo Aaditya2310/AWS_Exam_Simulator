@@ -3,12 +3,11 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { randomUUID } from "node:crypto";
 import rateLimit from "express-rate-limit";
-import { db } from "../db.js";
+import { users } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 
 const router = Router();
 
-// Brute-force protection: 10 attempts per 15 minutes per IP on auth routes.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
@@ -19,57 +18,69 @@ const authLimiter = rateLimit({
 router.use(authLimiter);
 
 function issueToken(user) {
-  return jwt.sign({ sub: user.id, username: user.username }, process.env.JWT_SECRET, {
-    expiresIn: "7d",
-  });
+  return jwt.sign(
+    { sub: user.id, email: user.email, name: user.name },
+    process.env.JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+}
+
+function publicUser(user) {
+  return { id: user.id, name: user.name, email: user.email };
 }
 
 router.post("/register", async (req, res) => {
-  const { username, password } = req.body || {};
+  const { name, email, password } = req.body || {};
 
-  if (typeof username !== "string" || username.trim().length < 3 || username.length > 32) {
-    return res.status(400).json({ error: "Username must be 3-32 characters." });
+  if (typeof name !== "string" || name.trim().length < 2 || name.trim().length > 60) {
+    return res.status(400).json({ error: "Name must be 2-60 characters." });
+  }
+  if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    return res.status(400).json({ error: "Enter a valid email address." });
   }
   if (typeof password !== "string" || password.length < 8) {
     return res.status(400).json({ error: "Password must be at least 8 characters." });
   }
 
-  const cleanUsername = username.trim();
-  const existing = db.prepare("SELECT id FROM users WHERE username = ?").get(cleanUsername);
-  if (existing) {
-    return res.status(409).json({ error: "That username is already taken." });
-  }
+  const cleanName = name.trim();
+  const cleanEmail = email.trim().toLowerCase();
+  const existing = await users.findOne({ email: cleanEmail });
+  if (existing) return res.status(409).json({ error: "An account with this email already exists." });
 
   const passwordHash = await bcrypt.hash(password, 12);
-  const id = randomUUID();
-  db.prepare(
-    "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)"
-  ).run(id, cleanUsername, passwordHash, new Date().toISOString());
+  const user = {
+    id: randomUUID(),
+    name: cleanName,
+    email: cleanEmail,
+    password_hash: passwordHash,
+    created_at: new Date(),
+  };
 
-  const token = issueToken({ id, username: cleanUsername });
-  res.status(201).json({ token, username: cleanUsername });
+  await users.insertOne(user);
+  const token = issueToken(user);
+  res.status(201).json({ token, user: publicUser(user) });
 });
 
 router.post("/login", async (req, res) => {
-  const { username, password } = req.body || {};
-  if (typeof username !== "string" || typeof password !== "string") {
+  const { email, password } = req.body || {};
+  if (typeof email !== "string" || typeof password !== "string") {
     return res.status(400).json({ error: "Invalid credentials." });
   }
 
-  const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username.trim());
-  // Generic error message regardless of which part was wrong, to avoid
-  // leaking which usernames exist.
-  if (!user) return res.status(401).json({ error: "Invalid username or password." });
+  const user = await users.findOne({ email: email.trim().toLowerCase() });
+  if (!user) return res.status(401).json({ error: "Invalid email or password." });
 
   const ok = await bcrypt.compare(password, user.password_hash);
-  if (!ok) return res.status(401).json({ error: "Invalid username or password." });
+  if (!ok) return res.status(401).json({ error: "Invalid email or password." });
 
   const token = issueToken(user);
-  res.json({ token, username: user.username });
+  res.json({ token, user: publicUser(user) });
 });
 
-router.get("/me", requireAuth, (req, res) => {
-  res.json({ username: req.username });
+router.get("/me", requireAuth, async (req, res) => {
+  const user = await users.findOne({ id: req.userId }, { projection: { password_hash: 0, _id: 0 } });
+  if (!user) return res.status(404).json({ error: "User not found." });
+  res.json(publicUser(user));
 });
 
 export default router;

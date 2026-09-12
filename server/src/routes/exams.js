@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
-import { db } from "../db.js";
+import { sessions, attempts } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import { EXAMS, examMetadata, publicQuestion } from "../data/questions.js";
 import { computeResults } from "../utils/grading.js";
@@ -17,11 +17,9 @@ function shuffle(arr) {
   return a;
 }
 
-router.get("/", (req, res) => {
-  res.json(examMetadata());
-});
+router.get("/", (req, res) => res.json(examMetadata()));
 
-router.post("/:examId/start", (req, res) => {
+router.post("/:examId/start", async (req, res) => {
   const exam = EXAMS[req.params.examId];
   if (!exam) return res.status(404).json({ error: "Unknown exam." });
 
@@ -34,13 +32,16 @@ router.post("/:examId/start", (req, res) => {
   const timeLimitSec = Math.round(count * exam.secPerQuestion);
 
   const sessionId = randomUUID();
-  db.prepare(
-    `INSERT INTO sessions (id, user_id, exam_id, question_ids, time_limit_sec, started_at, used)
-     VALUES (?, ?, ?, ?, ?, ?, 0)`
-  ).run(sessionId, req.userId, exam.id, JSON.stringify(questionIds), timeLimitSec, new Date().toISOString());
+  await sessions.insertOne({
+    id: sessionId,
+    user_id: req.userId,
+    exam_id: exam.id,
+    question_ids: questionIds,
+    time_limit_sec: timeLimitSec,
+    started_at: new Date(),
+    used: false,
+  });
 
-  // Shuffle option display order per question; grading matches by option id
-  // so this is safe and doesn't affect correctness checks.
   const questions = sampled.map((q) => {
     const pub = publicQuestion(q);
     return { ...pub, opts: shuffle(pub.opts) };
@@ -49,48 +50,46 @@ router.post("/:examId/start", (req, res) => {
   res.status(201).json({ sessionId, timeLimitSec, questions });
 });
 
-router.post("/session/:sessionId/submit", (req, res) => {
-  const session = db
-    .prepare("SELECT * FROM sessions WHERE id = ? AND user_id = ?")
-    .get(req.params.sessionId, req.userId);
-
+router.post("/session/:sessionId/submit", async (req, res) => {
+  const session = await sessions.findOne({ id: req.params.sessionId, user_id: req.userId });
   if (!session) return res.status(404).json({ error: "Session not found." });
   if (session.used) return res.status(409).json({ error: "This exam session was already submitted." });
 
   const exam = EXAMS[session.exam_id];
-  const questionIds = JSON.parse(session.question_ids);
-  const questions = questionIds.map((id) => exam.questions.find((q) => q.id === id));
+  const questions = session.question_ids.map((id) => exam.questions.find((q) => q.id === id));
   const answers = req.body?.answers || {};
-
   const results = computeResults(exam, questions, answers);
 
-  const startedAtMs = new Date(session.started_at).getTime();
-  const elapsedSec = Math.max(0, Math.round((Date.now() - startedAtMs) / 1000));
-  const timeTakenSec = Math.min(elapsedSec, session.time_limit_sec + 30); // small grace for network lag
+  const elapsedSec = Math.max(0, Math.round((Date.now() - session.started_at.getTime()) / 1000));
+  const timeTakenSec = Math.min(elapsedSec, session.time_limit_sec + 30);
 
   const attemptId = randomUUID();
-  db.prepare(
-    `INSERT INTO attempts
-     (id, user_id, exam_id, exam_code, exam_name, score, passed, correct_count, total, domain_stats, time_taken_sec, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    attemptId,
-    req.userId,
-    exam.id,
-    exam.code,
-    exam.name,
-    results.scaled,
-    results.passed ? 1 : 0,
-    results.correctCount,
-    results.total,
-    JSON.stringify(results.domainStats),
-    timeTakenSec,
-    new Date().toISOString()
+  await attempts.insertOne({
+    id: attemptId,
+    user_id: req.userId,
+    exam_id: exam.id,
+    exam_code: exam.code,
+    exam_name: exam.name,
+    score: results.scaled,
+    passed: results.passed,
+    correct_count: results.correctCount,
+    total: results.total,
+    domain_stats: results.domainStats,
+    time_taken_sec: timeTakenSec,
+    created_at: new Date(),
+  });
+
+  await sessions.updateOne(
+    { id: session.id, user_id: req.userId, used: false },
+    { $set: { used: true } }
   );
 
-  db.prepare("UPDATE sessions SET used = 1 WHERE id = ?").run(session.id);
-
-  res.json({ attemptId, exam: { code: exam.code, name: exam.name, passScore: exam.passScore, domains: exam.domains }, ...results, timeTakenSec });
+  res.json({
+    attemptId,
+    exam: { code: exam.code, name: exam.name, passScore: exam.passScore, domains: exam.domains },
+    ...results,
+    timeTakenSec,
+  });
 });
 
 export default router;
