@@ -14,7 +14,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: aws-exam.example.com
+    - host: aws-exam-simulator.duckdns.org
       http:
         paths:
           - path: /api
