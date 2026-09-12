@@ -14,7 +14,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: REPLACE_WITH_YOUR_DOMAIN
+    - host: aws-exam.example.com
       http:
         paths:
           - path: /
