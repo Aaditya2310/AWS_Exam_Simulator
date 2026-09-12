@@ -59,6 +59,11 @@ jobs:
   test:
     needs: build
     runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
     steps:
       - name: Download image artifacts
         uses: actions/download-artifact@v4
@@ -74,7 +79,9 @@ jobs:
         run: |
           docker run -d --name test-server -p 4000:4000 \
             -e JWT_SECRET=ci-test-secret-not-for-production-use \
-            -e DB_PATH=/app/data/test.db \
+            -e MONGODB_URI=mongodb://host.docker.internal:27017/aws_exam_ci \
+            -e MONGODB_DB=aws_exam_ci \
+            --add-host=host.docker.internal:host-gateway \
             aws-exam-server:${{ needs.build.outputs.sha }}
 
           echo "Waiting for the server to become healthy..."
@@ -136,13 +143,18 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          env: JWT_SECRET,MONGODB_URI
+          envs: JWT_SECRET=${{ secrets.JWT_SECRET }},MONGODB_URI=${{ secrets.MONGODB_URI }}
           script: |
             set -e
             cd ~/AWS_Exam_Simulator
             git fetch origin main
             git reset --hard origin/main
             sudo k3s kubectl apply -f k8s/namespace.yaml
-            sudo k3s kubectl apply -f k8s/server-pvc.yaml
+            sudo k3s kubectl -n aws-exam create secret generic app-secrets \
+              --from-literal=JWT_SECRET="$JWT_SECRET" \
+              --from-literal=MONGODB_URI="$MONGODB_URI" \
+              --dry-run=client -o yaml | sudo k3s kubectl apply -f -
             sudo k3s kubectl apply -f k8s/server-deployment.yaml
             sudo k3s kubectl apply -f k8s/client-deployment.yaml
             sudo k3s kubectl apply -f k8s/ingress.yaml

@@ -1,94 +1,131 @@
-# AWS Exam Simulator — real app (backend + frontend)
+# AWS Exam Simulator
 
-A practice-exam simulator for AWS certifications with real accounts
-(bcrypt-hashed passwords, JWT sessions), a SQLite database, server-graded
-exams, private per-user history, and a shared leaderboard.
+A production-style AWS certification practice application with:
 
-**Question content is original**, written to match AWS's published exam
-guide domains and weightings — it is not real AWS exam content (which is
-confidential/copyrighted and cannot legally be reproduced).
+- React + Vite frontend
+- Node.js + Express API
+- JWT authentication
+- Email + password registration/login
+- bcrypt password hashing
+- MongoDB Atlas for users, exam sessions and attempt history
+- Private history + shared leaderboard
+- Docker + Kubernetes (k3s) deployment
+- GitHub Actions + Jenkins deployment flow
+- AWS-focused UI with application branding and icons
 
-This has been built and smoke-tested end-to-end in development (register,
-duplicate-username rejection, wrong-password rejection, JWT-protected
-routes, answer-leak prevention before submit, grading, replay-block on
-resubmitting a session, rate limiting on auth, private history, shared
-leaderboard, CORS from a separate frontend origin, and a production
-frontend build). It has **not** been deployed to Railway by me — you'll
-need to do that step yourself, following the instructions below.
+> The question bank is original practice content based on AWS exam-guide domains. It is not real AWS exam content.
 
-## Project layout
+## 1. MongoDB Atlas
 
+Create a free MongoDB Atlas cluster and database user.
+
+In Atlas:
+1. Create a cluster.
+2. Create a database user.
+3. Network Access: allow your EC2 public IP (or `0.0.0.0/0` temporarily for a learning/demo environment).
+4. Copy the SRV connection string.
+5. URL-encode special characters in the database username/password.
+
+Example server environment:
+
+```env
+PORT=4000
+JWT_SECRET=<long-random-secret>
+MONGODB_URI=mongodb+srv://USERNAME:PASSWORD@CLUSTER.mongodb.net/?retryWrites=true&w=majority
+MONGODB_DB=aws_exam_simulator
+CORS_ORIGIN=http://localhost:5173
 ```
-server/   Node + Express API, SQLite (better-sqlite3), JWT auth
-client/   React + Vite frontend
-```
 
-## Run it locally
+## 2. Local development
 
-**Backend:**
+Backend:
+
 ```bash
 cd server
 cp .env.example .env
-# Edit .env: set a real JWT_SECRET (a command to generate one is in the file)
+# fill in MONGODB_URI and JWT_SECRET
 npm install
 npm run dev
 ```
-Server runs on http://localhost:4000 by default.
 
-**Frontend** (in a second terminal):
+Frontend:
+
 ```bash
 cd client
 cp .env.example .env
-# .env should point VITE_API_URL at your backend, e.g. http://localhost:4000/api
 npm install
 npm run dev
 ```
-Frontend runs on http://localhost:5173. Open it, create an account, and
-practice an exam.
 
-## Deploying to Railway
+Open `http://localhost:5173`.
 
-1. **Push this project to a GitHub repo** (Railway deploys from Git).
-2. **Create two Railway services** from the same repo: one for `server/`,
-   one for `client/` (set each service's root directory accordingly in
-   Railway's settings).
-3. **Backend service:**
-   - Set environment variables: `JWT_SECRET` (long random string — do not
-     reuse the example), `CORS_ORIGIN` (the frontend's public Railway URL,
-     once you have it), `DB_PATH=/data/app.db`.
-   - Attach a **persistent volume** mounted at `/data`. Without this, every
-     redeploy wipes all accounts and exam history — SQLite writes to the
-     container's local disk, which Railway does not persist by default
-     unless a volume is attached.
-   - Railway sets `PORT` automatically; the server already reads
-     `process.env.PORT`.
-4. **Frontend service:**
-   - Set `VITE_API_URL` to the backend service's public Railway URL plus
-     `/api` (e.g. `https://your-backend.up.railway.app/api`).
-   - Build command: `npm run build`. Start/serve command: use a static
-     file server for the `dist/` folder (Railway's static site deploy
-     option, or add `"serve": "vite preview --host --port $PORT"` as a
-     script and use that as the start command).
-5. Once both are deployed, go back to the backend service and set
-   `CORS_ORIGIN` to the frontend's actual public URL, then redeploy the
-   backend so the CORS setting takes effect.
+Registration now collects full name, email, password and password confirmation. Passwords are never stored in plain text.
 
-## Known limitations, stated plainly
+## 3. Use a real application name instead of an EC2 IP
 
-- **JWT in localStorage**: simpler to implement than httpOnly cookies
-  across two separate Railway domains, but it means a successful XSS
-  attack could steal a session token. For a portfolio/practice tool this
-  is a reasonable tradeoff; for anything handling sensitive data it
-  wouldn't be.
-- **Question bank size**: 30 questions per certification (60 total). A
-  bank that never feels repetitive under heavy repeated practice on one
-  exam would need 100+ per certification — this is a solid starting set,
-  not a claim of exhaustive coverage.
-- **Scoring model**: correct/total scaled linearly to AWS's 0–1000 range
-  with the real pass cutoffs (700 CLF, 720 SAA). AWS's actual scoring
-  algorithm is not published and is not purely linear — this is a
-  reasonable approximation, not a guarantee of matching your real exam
-  score.
-- **Leaderboard is visible to every account** on the deployment — that's
-  intentional per your earlier answer, but worth remembering if you ever
-  invite people you'd rather not share scores with.
+The application is branded as **AWS Exam Simulator** throughout the UI, page title and favicon.
+
+For the browser address itself, an EC2 IP can only be replaced by a DNS hostname if you own/control a domain.
+
+Recommended production setup:
+
+```text
+aws-exam.yourdomain.com
+        |
+        v
+DNS A record -> EC2 Elastic IP
+        |
+        v
+k3s / Traefik Ingress
+        |
+        v
+React + Express + MongoDB Atlas
+```
+
+Create an A record such as:
+
+```text
+aws-exam.yourdomain.com -> <EC2 Elastic IP>
+```
+
+Then replace `REPLACE_WITH_YOUR_DOMAIN` in `k8s/ingress.yaml`.
+
+For HTTPS, use a valid TLS certificate (for example with cert-manager + Let's Encrypt, or terminate TLS through Cloudflare).
+
+## 4. Kubernetes secrets
+
+Do not commit MongoDB credentials.
+
+Create the production secret:
+
+```bash
+sudo k3s kubectl create secret generic app-secrets -n aws-exam   --from-literal=JWT_SECRET="<long-random-secret>"   --from-literal=MONGODB_URI="mongodb+srv://USERNAME:PASSWORD@CLUSTER.mongodb.net/?retryWrites=true&w=majority"
+```
+
+The server reads:
+
+- `MONGODB_URI`
+- `MONGODB_DB`
+- `JWT_SECRET`
+
+The old SQLite database is no longer used.
+
+## 5. GitHub Actions / Jenkins
+
+Add these GitHub Actions secrets:
+
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN`
+- `EC2_HOST`
+- `EC2_USER`
+- `EC2_SSH_KEY`
+- `JWT_SECRET`
+- `MONGODB_URI`
+
+The workflow builds the server/client images, smoke-tests the server against a temporary MongoDB service, pushes images to Docker Hub, updates the k3s deployment and performs a health check.
+
+## Security notes
+
+This is suitable for a portfolio/learning application. For a production system, add email verification, password reset, MFA, stronger session management, audit logging and additional abuse/CSRF protections.
+
+Never put MongoDB Atlas credentials, JWT secrets, SSH private keys or `.env` files into Git.
