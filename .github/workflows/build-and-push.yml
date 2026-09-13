@@ -149,6 +149,7 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             sudo k3s kubectl apply -f k8s/namespace.yaml
+            sudo k3s kubectl apply -f k8s/traefik-tls-config.yaml
             sudo k3s kubectl -n aws-exam create secret generic app-secrets \
               --from-literal=JWT_SECRET="${{ secrets.JWT_SECRET }}" \
               --from-literal=MONGODB_URI="${{ secrets.MONGODB_URI }}" \

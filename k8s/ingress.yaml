@@ -1,30 +1,23 @@
-# k3s ships with Traefik as its default Ingress controller — nothing extra
-# to install. This Ingress only needs to point at the client Service,
-# because nginx inside that pod already reverse-proxies /api/* to the
-# server Service internally (see client/nginx.conf). That also means the
-# browser only ever talks to one origin — no CORS to configure.
-#
-# Set the host to the DNS name you point at the EC2 Elastic IP.
-# Example: aws-exam.example.com
+# Routes all traffic to the client service (nginx), which internally
+# reverse-proxies /api/* to the server service - see client/nginx.conf.
+# TLS is handled entirely by Traefik via the annotations below, using the
+# ACME resolver configured in traefik-tls-config.yaml. No k8s TLS Secret
+# needed - Traefik manages the certificate itself.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: app-ingress
   namespace: aws-exam
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
 spec:
   ingressClassName: traefik
   rules:
     - host: aws-exam-simulator.duckdns.org
       http:
         paths:
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: server
-                port:
-                  number: 4000
-
           - path: /
             pathType: Prefix
             backend:
