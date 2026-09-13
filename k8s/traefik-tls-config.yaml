@@ -1,0 +1,20 @@
+# Configures k3s's bundled Traefik to obtain and auto-renew a free
+# Let's Encrypt certificate, and to redirect all plain HTTP traffic to
+# HTTPS. No new pods — this only adds arguments to the Traefik container
+# that's already running, which matters given this box's RAM ceiling.
+#
+# Replace REPLACE_WITH_YOUR_EMAIL before applying. Let's Encrypt uses this
+# for certificate expiry/security notices only, never for anything else.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    additionalArguments:
+      - "--certificatesresolvers.letsencrypt.acme.email=adityadpatil.23@gmail.com"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/data/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
