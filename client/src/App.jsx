@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "./api.js";
-import { BookOpen, History, LogOut, UserCircle, Cloud, ShieldCheck, Database, Gauge, Terminal, CheckCircle2 } from "lucide-react";
+
+// Segment colors for the domain-weighting stacked bar on each exam card.
+// Cycles if an exam somehow has more than 4 domains.
+const DOMAIN_COLORS = ["#45d5c4", "#7c9cf5", "#b98af5", "#f4b740"];
 
 function fmtTime(sec) {
   const m = Math.floor(sec / 60);
@@ -36,7 +39,7 @@ export default function App() {
       }
       try {
         const me = await api.me();
-        setUsername(me.name);
+        setUsername(me.username);
         const list = await api.getExams();
         setExams(list);
         setScreen("home");
@@ -59,8 +62,8 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, timeLeft]);
 
-  const handleAuthed = async (user) => {
-    setUsername(user.name);
+  const handleAuthed = async (username) => {
+    setUsername(username);
     setGlobalError(null);
     try {
       const list = await api.getExams();
@@ -207,23 +210,16 @@ export default function App() {
 function TopBar({ username, screen, onHome, onHistory, onLogout }) {
   return (
     <div className="top-bar">
-      <button className="brand brand-button" onClick={onHome} aria-label="Go to home">
-        <span className="brand-mark"><Cloud size={16} /></span>
-        <span className="brand-text">AWS Exam Simulator</span>
-      </button>
+      <div className="brand">
+        <span className="brand-mark">AWS</span>
+        <span className="brand-text">Exam Sim</span>
+      </div>
       <div className="top-nav">
-        <button className={`nav-btn ${screen === "home" ? "active" : ""}`} onClick={onHome}>
-          <BookOpen size={15} /> Practice
-        </button>
-        <button className={`nav-btn ${screen === "history" ? "active" : ""}`} onClick={onHistory}>
-          <History size={15} /> History
-        </button>
+        <button className={`nav-btn ${screen === "home" ? "active" : ""}`} onClick={onHome}>Practice</button>
+        <button className={`nav-btn ${screen === "history" ? "active" : ""}`} onClick={onHistory}>History</button>
         <div className="user-chip">
-          <UserCircle size={16} />
-          <span>{username}</span>
-          <button className="switch-btn" onClick={onLogout} title="Log out" aria-label="Log out">
-            <LogOut size={15} />
-          </button>
+          {username}
+          <button className="switch-btn" onClick={onLogout} title="Log out">⏻</button>
         </div>
       </div>
     </div>
@@ -233,27 +229,27 @@ function TopBar({ username, screen, onHome, onHistory, onLogout }) {
 /* ---------------- AUTH ---------------- */
 
 function AuthScreen({ onAuthed }) {
-  const [mode, setMode] = useState("login");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [mode, setMode] = useState("login"); // login | register
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const submit = async () => {
     setError(null);
-    if (mode === "register" && !name.trim()) return setError("Enter your full name.");
-    if (!email.trim() || !password) return setError("Enter your email and password.");
-    if (mode === "register" && password.length < 8) return setError("Password must be at least 8 characters.");
-    if (mode === "register" && password !== confirmPassword) return setError("Passwords do not match.");
-
+    if (!username.trim() || !password) {
+      setError("Enter a username and password.");
+      return;
+    }
+    if (mode === "register" && password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
     setLoading(true);
     try {
-      const data = mode === "register"
-        ? await api.register(name.trim(), email.trim(), password)
-        : await api.login(email.trim(), password);
-      onAuthed(data.user);
+      const data = mode === "register" ? await api.register(username.trim(), password) : await api.login(username.trim(), password);
+      onAuthed(data.username);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -263,43 +259,45 @@ function AuthScreen({ onAuthed }) {
 
   return (
     <div className="name-wrap">
-      <div className="name-card auth-card">
-        <div className="auth-logo"><Cloud size={28} /></div>
+      <div className="name-card">
         <div className="name-mark">AWS</div>
-        <h1 className="name-title">AWS Exam Simulator</h1>
-        <p className="name-sub auth-intro">Practice AWS certification exams, track your attempts and improve your score.</p>
-
+        <h1 className="name-title">Exam Simulator</h1>
         <div className="auth-toggle">
           <button className={`auth-tab ${mode === "login" ? "active" : ""}`} onClick={() => { setMode("login"); setError(null); }}>Log in</button>
           <button className={`auth-tab ${mode === "register" ? "active" : ""}`} onClick={() => { setMode("register"); setError(null); }}>Create account</button>
         </div>
-
-        {mode === "register" && (
-          <div className="field-wrap">
-            <UserCircle size={17} />
-            <input className="input input-with-icon" placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-          </div>
-        )}
-        <div className="field-wrap">
-          <span className="field-icon">@</span>
-          <input className="input input-with-icon" type="email" placeholder="Email address" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus={mode === "login"} />
+        <input
+          className="input"
+          placeholder="Username"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          autoFocus
+        />
+        <div className="input-wrap">
+          <input
+            className="input"
+            type={showPassword ? "text" : "password"}
+            placeholder={mode === "register" ? "Password (min 8 characters)" : "Password"}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
+          <button
+            type="button"
+            className="input-toggle"
+            onClick={() => setShowPassword((s) => !s)}
+            tabIndex={-1}
+          >
+            {showPassword ? "Hide" : "Show"}
+          </button>
         </div>
-        <div className="field-wrap">
-          <ShieldCheck size={17} />
-          <input className="input input-with-icon" type="password" placeholder={mode === "register" ? "Password (min 8 characters)" : "Password"} value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
-        </div>
-        {mode === "register" && (
-          <div className="field-wrap">
-            <CheckCircle2 size={17} />
-            <input className="input input-with-icon" type="password" placeholder="Confirm password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
-          </div>
-        )}
-
         {error && <div className="auth-error">{error}</div>}
         <button className="primary-btn" onClick={submit} disabled={loading}>
           {loading ? "Please wait…" : mode === "register" ? "Create account" : "Log in"}
         </button>
-        <p className="name-sub security-note"><ShieldCheck size={14} /> Passwords are securely hashed with bcrypt. Account data and exam history are stored in MongoDB Atlas.</p>
+        <p className="name-sub" style={{ marginTop: 14, marginBottom: 0 }}>
+          Passwords are hashed server-side (bcrypt) and never stored in plain text. History is private to your account by default; the leaderboard tab shows results across all users.
+        </p>
       </div>
     </div>
   );
@@ -328,17 +326,26 @@ function HomeScreen({ exams, onStart }) {
             <div className="exam-card-top" />
             <div className="exam-card-body">
               <div className="exam-code">{exam.code}</div>
-              <div className="exam-name"><Cloud size={20} /> {exam.name}</div>
+              <div className="exam-name">{exam.name}</div>
               <div className="domain-bars">
-                {Object.entries(exam.domains).map(([key, d]) => (
-                  <div key={key} className="domain-row">
-                    <div className="domain-label">{key === "concepts" ? <Cloud size={14} /> : key === "security" ? <ShieldCheck size={14} /> : key === "technology" ? <Terminal size={14} /> : <Gauge size={14} />}<span>{d.label}</span></div>
-                    <div className="domain-bar-track">
-                      <div className="domain-bar-fill" style={{ width: `${d.weight}%` }} />
+                <div className="domain-stack">
+                  {Object.entries(exam.domains).map(([key, d], i) => (
+                    <div
+                      key={key}
+                      className="domain-stack-seg"
+                      style={{ width: `${d.weight}%`, background: DOMAIN_COLORS[i % DOMAIN_COLORS.length] }}
+                    />
+                  ))}
+                </div>
+                <div className="domain-legend">
+                  {Object.entries(exam.domains).map(([key, d], i) => (
+                    <div key={key} className="domain-row">
+                      <div className="domain-dot" style={{ background: DOMAIN_COLORS[i % DOMAIN_COLORS.length] }} />
+                      <div className="domain-label">{d.label}</div>
+                      <div className="domain-weight">{d.weight}%</div>
                     </div>
-                    <div className="domain-weight">{d.weight}%</div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
               <div className="exam-meta">{exam.poolSize} questions in pool · pass mark {exam.passScore}/1000</div>
 
@@ -346,7 +353,7 @@ function HomeScreen({ exams, onStart }) {
                 <div className="count-picker">
                   <div className="count-label">How many questions this attempt?</div>
                   <div className="count-options">
-                    {[10, 20, Math.min(30, exam.poolSize)].map((n) => (
+                    {[10, 20, 40, Math.min(65, exam.poolSize)].map((n) => (
                       <button
                         key={n}
                         className={`count-btn ${questionCount === n ? "active" : ""}`}
