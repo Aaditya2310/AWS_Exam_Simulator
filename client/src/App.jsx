@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "./api.js";
 
 // Segment colors for the domain-weighting stacked bar on each exam card.
-// Cycles if an exam somehow has more than 4 domains.
-const DOMAIN_COLORS = ["#45d5c4", "#7c9cf5", "#b98af5", "#f4b740"];
+// Cycles if an exam somehow has more than this many domains.
+const DOMAIN_COLORS = ["#45d5c4", "#7c9cf5", "#b98af5", "#f4b740", "#fb7185"];
 
 function fmtTime(sec) {
   const m = Math.floor(sec / 60);
@@ -12,7 +12,7 @@ function fmtTime(sec) {
 }
 
 export default function App() {
-  const [screen, setScreen] = useState("loading"); // loading | auth | home | exam | results | history
+  const [screen, setScreen] = useState("loading"); // loading | auth | home | exam | results | history | study
   const [username, setUsername] = useState(null);
   const [exams, setExams] = useState([]);
   const [session, setSession] = useState(null); // { sessionId, timeLimitSec, questions, examId }
@@ -149,7 +149,14 @@ export default function App() {
   return (
     <div className="app-shell">
       {screen !== "loading" && screen !== "auth" && (
-        <TopBar username={username} screen={screen} onHome={() => setScreen("home")} onHistory={() => goHistory()} onLogout={handleLogout} />
+        <TopBar
+          username={username}
+          screen={screen}
+          onHome={() => setScreen("home")}
+          onHistory={() => goHistory()}
+          onStudy={() => setScreen("study")}
+          onLogout={handleLogout}
+        />
       )}
 
       <div className="content">
@@ -162,6 +169,8 @@ export default function App() {
         {screen === "auth" && <AuthScreen onAuthed={handleAuthed} />}
 
         {screen === "home" && <HomeScreen exams={exams} onStart={startExam} />}
+
+        {screen === "study" && <StudyScreen exams={exams} />}
 
         {screen === "exam" && session && (
           <ExamScreen
@@ -207,7 +216,7 @@ export default function App() {
 
 /* ---------------- TOP BAR ---------------- */
 
-function TopBar({ username, screen, onHome, onHistory, onLogout }) {
+function TopBar({ username, screen, onHome, onHistory, onStudy, onLogout }) {
   return (
     <div className="top-bar">
       <div className="brand">
@@ -216,6 +225,7 @@ function TopBar({ username, screen, onHome, onHistory, onLogout }) {
       </div>
       <div className="top-nav">
         <button className={`nav-btn ${screen === "home" ? "active" : ""}`} onClick={onHome}>Practice</button>
+        <button className={`nav-btn ${screen === "study" ? "active" : ""}`} onClick={onStudy}>Study</button>
         <button className={`nav-btn ${screen === "history" ? "active" : ""}`} onClick={onHistory}>History</button>
         <div className="user-chip">
           {username}
@@ -296,7 +306,7 @@ function AuthScreen({ onAuthed }) {
           {loading ? "Please wait…" : mode === "register" ? "Create account" : "Log in"}
         </button>
         <p className="name-sub" style={{ marginTop: 14, marginBottom: 0 }}>
-          Passwords are hashed server-side (bcrypt) and never stored in plain text. History is private to your account by default; the leaderboard tab shows results across all users.
+          Passwords are securely hashed with bcrypt. Account data and exam history are stored in MongoDB Atlas.
         </p>
       </div>
     </div>
@@ -327,6 +337,7 @@ function HomeScreen({ exams, onStart }) {
             <div className="exam-card-body">
               <div className="exam-code">{exam.code}</div>
               <div className="exam-name">{exam.name}</div>
+
               <div className="domain-bars">
                 <div className="domain-stack">
                   {Object.entries(exam.domains).map(([key, d], i) => (
@@ -373,6 +384,78 @@ function HomeScreen({ exams, onStart }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/* ---------------- STUDY ---------------- */
+
+function StudyScreen({ exams }) {
+  const [selectedExamId, setSelectedExamId] = useState(null);
+
+  if (exams.length === 0) {
+    return <div className="center-text">Loading study material…</div>;
+  }
+
+  const activeExamId = selectedExamId || exams[0].id;
+  const activeExam = exams.find((e) => e.id === activeExamId);
+
+  return (
+    <div>
+      <div className="home-header">
+        <h1 className="h1">Study material</h1>
+        <p className="p-dim">Per-domain summaries, key points, and official AWS documentation links.</p>
+      </div>
+
+      <div className="study-exam-select">
+        {exams.map((exam) => (
+          <button
+            key={exam.id}
+            className={`study-exam-btn ${activeExamId === exam.id ? "active" : ""}`}
+            onClick={() => setSelectedExamId(exam.id)}
+          >
+            {exam.code}
+          </button>
+        ))}
+      </div>
+
+      {activeExam && (
+        <div className="study-domain-list">
+          {Object.entries(activeExam.domains).map(([key, d]) => (
+            <div key={key} className="study-domain-card">
+              <div className="study-domain-header">
+                <div className="study-domain-title">{d.label}</div>
+                <div className="study-domain-weight">{d.weight}% of exam</div>
+              </div>
+
+              {d.study ? (
+                <>
+                  <div className="study-summary">{d.study.summary}</div>
+
+                  <div className="study-subheading">Key points</div>
+                  <ul className="study-key-points">
+                    {d.study.keyPoints.map((kp, i) => (
+                      <li key={i}>{kp}</li>
+                    ))}
+                  </ul>
+
+                  <div className="study-subheading">Further reading</div>
+                  <div className="study-links">
+                    {d.study.links.map((link, i) => (
+                      <a key={i} className="study-link" href={link.url} target="_blank" rel="noopener noreferrer">
+                        <span className="study-link-arrow">↗</span>
+                        {link.title}
+                      </a>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="p-dim">Study material for this domain isn't available yet.</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
