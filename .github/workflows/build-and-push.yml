@@ -169,7 +169,7 @@ jobs:
       - name: Confirm the live app responds over the public internet
         run: |
           for i in $(seq 1 10); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.EC2_HOST }}/api/health)
+            code=$(curl -s -o /dev/null -w "%{http_code}" https://${{ secrets.EC2_HOST }}/api/health)
             if [ "$code" = "200" ]; then
               echo "Health check passed (HTTP $code) on attempt $i"
               exit 0
