@@ -1,5 +1,22 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "./api.js";
+import {
+  BookOpen,
+  GraduationCap,
+  History as HistoryIcon,
+  LogOut,
+  User,
+  Eye,
+  EyeOff,
+  Flag,
+  ExternalLink,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  ChevronLeft,
+  ChevronRight,
+  AlertTriangle,
+} from "lucide-react";
 
 // Segment colors for the domain-weighting stacked bar on each exam card.
 // Cycles if an exam somehow has more than this many domains.
@@ -146,10 +163,12 @@ export default function App() {
 
   const answeredCount = session ? session.questions.filter((q) => (answers[q.id] || []).length > 0).length : 0;
 
+  const showChrome = screen !== "loading" && screen !== "auth";
+
   return (
-    <div className="app-shell">
-      {screen !== "loading" && screen !== "auth" && (
-        <TopBar
+    <div className={`app-shell ${showChrome ? "with-sidebar" : ""}`}>
+      {showChrome && (
+        <Sidebar
           username={username}
           screen={screen}
           onHome={() => setScreen("home")}
@@ -159,78 +178,100 @@ export default function App() {
         />
       )}
 
-      <div className="content">
-        {globalError && screen !== "auth" && (
-          <div className="warn-banner">{globalError}</div>
-        )}
+      <div className="main-content">
+        <div className="content">
+          {globalError && screen !== "auth" && (
+            <div className="warn-banner">{globalError}</div>
+          )}
 
-        {screen === "loading" && <div className="center-text">Loading…</div>}
+          {screen === "loading" && <div className="center-text">Loading…</div>}
 
-        {screen === "auth" && <AuthScreen onAuthed={handleAuthed} />}
+          {screen === "auth" && <AuthScreen onAuthed={handleAuthed} />}
 
-        {screen === "home" && <HomeScreen exams={exams} onStart={startExam} />}
+          {screen === "home" && <HomeScreen exams={exams} onStart={startExam} />}
 
-        {screen === "study" && <StudyScreen exams={exams} />}
+          {screen === "study" && <StudyScreen exams={exams} />}
 
-        {screen === "exam" && session && (
-          <ExamScreen
-            session={session}
-            current={current}
-            setCurrent={setCurrent}
-            answers={answers}
-            toggleAnswer={toggleAnswer}
-            flagged={flagged}
-            toggleFlag={toggleFlag}
-            timeLeft={timeLeft}
-            answeredCount={answeredCount}
-            showNav={showNav}
-            setShowNav={setShowNav}
-            showSubmitConfirm={showSubmitConfirm}
-            setShowSubmitConfirm={setShowSubmitConfirm}
-            onSubmit={handleSubmit}
-          />
-        )}
+          {screen === "exam" && session && (
+            <ExamScreen
+              session={session}
+              current={current}
+              setCurrent={setCurrent}
+              answers={answers}
+              toggleAnswer={toggleAnswer}
+              flagged={flagged}
+              toggleFlag={toggleFlag}
+              timeLeft={timeLeft}
+              answeredCount={answeredCount}
+              showNav={showNav}
+              setShowNav={setShowNav}
+              showSubmitConfirm={showSubmitConfirm}
+              setShowSubmitConfirm={setShowSubmitConfirm}
+              onSubmit={handleSubmit}
+            />
+          )}
 
-        {screen === "results" && results && (
-          <ResultsScreen
-            results={results}
-            onRetake={() => startExam(session.examId, session.questions.length)}
-            onHome={() => setScreen("home")}
-            onHistory={() => goHistory("mine")}
-          />
-        )}
+          {screen === "results" && results && (
+            <ResultsScreen
+              results={results}
+              onRetake={() => startExam(session.examId, session.questions.length)}
+              onHome={() => setScreen("home")}
+              onHistory={() => goHistory("mine")}
+            />
+          )}
 
-        {screen === "history" && (
-          <HistoryScreen
-            history={history}
-            loading={historyLoading}
-            username={username}
-            tab={historyTab}
-            onTabChange={(t) => goHistory(t)}
-          />
-        )}
+          {screen === "history" && (
+            <HistoryScreen
+              history={history}
+              loading={historyLoading}
+              username={username}
+              tab={historyTab}
+              onTabChange={(t) => goHistory(t)}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-/* ---------------- TOP BAR ---------------- */
+/* ---------------- SIDEBAR ---------------- */
 
-function TopBar({ username, screen, onHome, onHistory, onStudy, onLogout }) {
+function Sidebar({ username, screen, onHome, onHistory, onStudy, onLogout }) {
+  const navItems = [
+    { key: "home", label: "Practice", icon: GraduationCap, onClick: onHome },
+    { key: "study", label: "Study", icon: BookOpen, onClick: onStudy },
+    { key: "history", label: "History", icon: HistoryIcon, onClick: onHistory },
+  ];
+
   return (
-    <div className="top-bar">
-      <div className="brand">
+    <div className="sidebar">
+      <div className="sidebar-brand">
         <span className="brand-mark">AWS</span>
         <span className="brand-text">Exam Sim</span>
       </div>
-      <div className="top-nav">
-        <button className={`nav-btn ${screen === "home" ? "active" : ""}`} onClick={onHome}>Practice</button>
-        <button className={`nav-btn ${screen === "study" ? "active" : ""}`} onClick={onStudy}>Study</button>
-        <button className={`nav-btn ${screen === "history" ? "active" : ""}`} onClick={onHistory}>History</button>
-        <div className="user-chip">
-          {username}
-          <button className="switch-btn" onClick={onLogout} title="Log out">⏻</button>
+
+      <nav className="sidebar-nav">
+        {navItems.map(({ key, label, icon: Icon, onClick }) => (
+          <button
+            key={key}
+            className={`sidebar-nav-btn ${screen === key ? "active" : ""}`}
+            onClick={onClick}
+          >
+            <Icon size={17} strokeWidth={2} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
+
+      <div className="sidebar-footer">
+        <div className="sidebar-user">
+          <User size={15} strokeWidth={2} />
+          <span>{username}</span>
         </div>
+        <button className="sidebar-logout-btn" onClick={onLogout} title="Log out">
+          <LogOut size={15} strokeWidth={2} />
+        </button>
       </div>
     </div>
   );
@@ -297,8 +338,9 @@ function AuthScreen({ onAuthed }) {
             className="input-toggle"
             onClick={() => setShowPassword((s) => !s)}
             tabIndex={-1}
+            title={showPassword ? "Hide password" : "Show password"}
           >
-            {showPassword ? "Hide" : "Show"}
+            {showPassword ? <EyeOff size={16} strokeWidth={2} /> : <Eye size={16} strokeWidth={2} />}
           </button>
         </div>
         {error && <div className="auth-error">{error}</div>}
@@ -443,7 +485,7 @@ function StudyScreen({ exams }) {
                   <div className="study-links">
                     {d.study.links.map((link, i) => (
                       <a key={i} className="study-link" href={link.url} target="_blank" rel="noopener noreferrer">
-                        <span className="study-link-arrow">↗</span>
+                        <ExternalLink size={14} strokeWidth={2} className="study-link-arrow" />
                         {link.title}
                       </a>
                     ))}
@@ -475,7 +517,10 @@ function ExamScreen({
     <div>
       <div className="exam-top-row">
         <div className="exam-progress">Question {current + 1} of {questions.length} · {answeredCount} answered</div>
-        <div className={`timer-box ${urgent ? "urgent" : ""}`}>{fmtTime(timeLeft)}</div>
+        <div className={`timer-box ${urgent ? "urgent" : ""}`}>
+          <Clock size={14} strokeWidth={2} />
+          {fmtTime(timeLeft)}
+        </div>
       </div>
 
       <div className="progress-track">
@@ -485,8 +530,9 @@ function ExamScreen({
       <div className="q-card">
         <div className="q-meta-row">
           <span className="q-domain-tag">{q.domain}</span>
-          <button className="flag-btn" onClick={() => toggleFlag(q.id)}>
-            {flagged[q.id] ? "★ Flagged" : "☆ Flag for review"}
+          <button className={`flag-btn ${flagged[q.id] ? "active" : ""}`} onClick={() => toggleFlag(q.id)}>
+            <Flag size={13} strokeWidth={2} fill={flagged[q.id] ? "currentColor" : "none"} />
+            {flagged[q.id] ? "Flagged" : "Flag for review"}
           </button>
         </div>
         <div className="q-text">{q.q}</div>
@@ -510,14 +556,16 @@ function ExamScreen({
 
       <div className="exam-footer">
         <button className="footer-btn" onClick={() => setCurrent((c) => Math.max(0, c - 1))} disabled={current === 0}>
-          ← Previous
+          <ChevronLeft size={15} strokeWidth={2} />
+          Previous
         </button>
         <button className="footer-btn-ghost" onClick={() => setShowNav((s) => !s)}>
           Question {current + 1} / {questions.length}
         </button>
         {current < questions.length - 1 ? (
           <button className="footer-btn" onClick={() => setCurrent((c) => Math.min(questions.length - 1, c + 1))}>
-            Next →
+            Next
+            <ChevronRight size={15} strokeWidth={2} />
           </button>
         ) : (
           <button className="submit-btn" onClick={() => setShowSubmitConfirm(true)}>Submit exam</button>
@@ -549,6 +597,7 @@ function ExamScreen({
       {showSubmitConfirm && (
         <div className="modal-overlay">
           <div className="modal-card">
+            <AlertTriangle size={28} strokeWidth={2} className="modal-icon" />
             <div className="modal-title">Submit this exam?</div>
             <div className="modal-body">
               {answeredCount} of {questions.length} questions answered.
@@ -618,8 +667,9 @@ function ResultsScreen({ results, onRetake, onHome, onHistory }) {
           {results.review.map((q, i) => (
             <div key={q.id} className="review-card">
               <div className="review-header">
-                <span style={{ color: q.isCorrect ? "var(--good)" : "var(--bad)" }}>
-                  {q.isCorrect ? "✓" : "✕"} Question {i + 1}
+                <span className="review-verdict" style={{ color: q.isCorrect ? "var(--good)" : "var(--bad)" }}>
+                  {q.isCorrect ? <CheckCircle2 size={15} strokeWidth={2} /> : <XCircle size={15} strokeWidth={2} />}
+                  Question {i + 1}
                 </span>
                 <span className="q-domain-tag">{q.domain}</span>
               </div>
